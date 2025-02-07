@@ -1,0 +1,47 @@
+# Ignore target (build) directory
+target/
+
+# Ignore dependencies and IDE-specific files
+*.class
+*.log
+*.jar
+*.war
+*.ear
+*.iml
+*.swp
+
+# Ignore environment files
+.env
+*.env
+
+# Ignore system-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore Maven and Gradle files
+.mvn/
+.gradle/
+build/
+
+# Ignore IntelliJ, Eclipse, VS Code, NetBeans files
+.idea/
+*.ipr
+*.iws
+*.suo
+*.vscode/
+
+# Ignore logs and temporary files
+logs/
+*.log
+hs_err_pid*
+
+# Ignore Docker files (optional)
+docker-compose.override.yml
+
+*.tar
+*.img
+*.container
+
+mysql-db
+rabbit-data
+/rabbit-data/

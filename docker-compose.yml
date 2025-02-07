@@ -1,0 +1,167 @@
+services:
+  nginx:
+    image: nginx:latest
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - note-service
+      - notification
+      - kafka-logger
+    ports:
+      - "4000:4000"
+
+  mysql-db:
+    image: mysql:8.0
+    restart: always
+    ports:
+      - "3305:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: 'root'
+      MYSQL_DATABASE: 'db_app'
+    volumes:
+      - ./mysql-db:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  user-service:
+    image: user-service
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    environment:
+      database.ip: mysql-db
+      database.port: 3306
+      database.name: db_app
+      database.user: root
+      database.password: root
+      jwt.secret: fb5d88a5ba1371d6a33fecc46e9ba5e7e4db9386eeb5ba378b1ddc99dcef8ebd18e74d504b726d409271fba253703055a070c5f4fea6ef3133fcdf8b62899335c5767a7ae4b3c4399ba7b0f7c837edab5f6fbe9e6e5aad3c71b73b423a32ee0f0f30092d7819da8d07735ec1c41eb30afc4570ac0022ec9223e9502edc607cf22b35a8d159ae0b9bf345f0fcd90862228dd0bd2665995ca302a40d1365bb29f0b031c61ea6f022eb551a16455e6997e48f6df5a5e39093582b49d6397113f95786b534f092272c255fba755543d7c9bf5e0b0cbc0aa7453dc1d1a2fad67b7a667a67494d9746ff3a0d7c6104d15360af4110b9fc5ca193d7785265e7a74c0ecd
+      jwt.expiration: 3600000
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+    ports:
+      - "8080"
+    volumes:
+      - ./logs/user-service/:/var/log/user-service
+
+  note-service:
+    image: note-service
+    build:
+      context: ./note-service
+      dockerfile: Dockerfile
+    environment:
+      database.ip: mysql-db
+      database.port: 3306
+      database.name: db_app
+      database.user: root
+      database.password: root
+      jwt.secret: fb5d88a5ba1371d6a33fecc46e9ba5e7e4db9386eeb5ba378b1ddc99dcef8ebd18e74d504b726d409271fba253703055a070c5f4fea6ef3133fcdf8b62899335c5767a7ae4b3c4399ba7b0f7c837edab5f6fbe9e6e5aad3c71b73b423a32ee0f0f30092d7819da8d07735ec1c41eb30afc4570ac0022ec9223e9502edc607cf22b35a8d159ae0b9bf345f0fcd90862228dd0bd2665995ca302a40d1365bb29f0b031c61ea6f022eb551a16455e6997e48f6df5a5e39093582b49d6397113f95786b534f092272c255fba755543d7c9bf5e0b0cbc0aa7453dc1d1a2fad67b7a667a67494d9746ff3a0d7c6104d15360af4110b9fc5ca193d7785265e7a74c0ecd
+      KAFKA_SERVER: kafka
+      KAFKA_PORT: 9092
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081"
+    volumes:
+      - ./logs/note-service/:/var/log/note-service
+
+  notification:
+    image: notification
+    build:
+      context: ./notification
+      dockerfile: Dockerfile
+    environment:
+      database.ip: mysql-db
+      database.port: 3306
+      database.name: db_app
+      database.user: root
+      database.password: root
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      FAKE_SMTP_SERVER: fake-smtp-server
+      FAKE_SMTP_PORT: 8025
+    depends_on:
+      mysql-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  kafka-logger:
+    image: kafka-logger:latest
+    restart: always
+    build:
+      dockerfile: Dockerfile
+      context: ./kafka-logger
+    environment:
+      - APPLICATION_PORT=8020
+      - KAFKA_SERVER=kafka
+      - KAFKA_PORT=9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./logs/kafka-logger/:/var/log/kafka-logger
+
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.1.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "22181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:5.1.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 30000
+      KAFKA_ZOOKEEPER_CONNECTION_TIMEOUT_MS: 30000
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.request.logger=WARN"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_CREATE_TOPICS: "log-message:1:1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    hostname: kafka
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 9092 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - "./rabbit-data:/var/lib/rabbitmq/mnesia/"
+    healthcheck:
+      test: [ "CMD", "rabbitmqctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fake-smtp-server:
+    image: gessnerfl/fake-smtp-server:latest
+    ports:
+      - "8025:8025"      #expose smtp port
+      - "5555:8080"      #expose web ui
+      - "8085:8085"      #expose management api
